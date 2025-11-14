@@ -1,0 +1,612 @@
+#!/usr/bin/env python3
+# des_gui_final.py
+# DES GUI (Tkinter) — Final full version
+# - Binary-only (no hex)
+# - Encrypt & Decrypt (step-by-step)
+# - Show subkeys K1..K16
+# - Ciphertext display: grouped (8-bit with spaces) or continuous
+# - Decrypt accepts grouped or continuous binary or 8-byte raw text
+# - Copy-to-clipboard for ciphertext and plaintext
+
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox
+from typing import List
+
+# ---------------- DES TABLES ----------------
+IP = [
+    58,50,42,34,26,18,10,2,60,52,44,36,28,20,12,4,
+    62,54,46,38,30,22,14,6,64,56,48,40,32,24,16,8,
+    57,49,41,33,25,17,9,1,59,51,43,35,27,19,11,3,
+    61,53,45,37,29,21,13,5,63,55,47,39,31,23,15,7
+]
+FP = [
+    40,8,48,16,56,24,64,32,39,7,47,15,55,23,63,31,
+    38,6,46,14,54,22,62,30,37,5,45,13,53,21,61,29,
+    36,4,44,12,52,20,60,28,35,3,43,11,51,19,59,27,
+    34,2,42,10,50,18,58,26,33,1,41,9,49,17,57,25
+]
+E = [
+    32,1,2,3,4,5,4,5,6,7,8,9,8,9,10,11,12,13,
+    12,13,14,15,16,17,16,17,18,19,20,21,20,21,22,23,24,25,
+    24,25,26,27,28,29,28,29,30,31,32,1
+]
+P = [
+    16,7,20,21,29,12,28,17,1,15,23,26,5,18,31,10,
+    2,8,24,14,32,27,3,9,19,13,30,6,22,11,4,25
+]
+PC1 = [
+    57,49,41,33,25,17,9,1,58,50,42,34,26,18,10,2,
+    59,51,43,35,27,19,11,3,60,52,44,36,63,55,47,39,
+    31,23,15,7,62,54,46,38,30,22,14,6,61,53,45,37,
+    29,21,13,5,28,20,12,4
+]
+PC2 = [
+    14,17,11,24,1,5,3,28,15,6,21,10,23,19,12,4,
+    26,8,16,7,27,20,13,2,41,52,31,37,47,55,30,40,
+    51,45,33,48,44,49,39,56,34,53,46,42,50,36,29,32
+]
+SHIFTS = [1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1]
+
+S_BOX = [
+[ # S1
+ [14,4,13,1,2,15,11,8,3,10,6,12,5,9,0,7],
+ [0,15,7,4,14,2,13,1,10,6,12,11,9,5,3,8],
+ [4,1,14,8,13,6,2,11,15,12,9,7,3,10,5,0],
+ [15,12,8,2,4,9,1,7,5,11,3,14,10,0,6,13]
+],
+[ # S2
+ [15,1,8,14,6,11,3,4,9,7,2,13,12,0,5,10],
+ [3,13,4,7,15,2,8,14,12,0,1,10,6,9,11,5],
+ [0,14,7,11,10,4,13,1,5,8,12,6,9,3,2,15],
+ [13,8,10,1,3,15,4,2,11,6,7,12,0,5,14,9]
+],
+[ # S3
+ [10,0,9,14,6,3,15,5,1,13,12,7,11,4,2,8],
+ [13,7,0,9,3,4,6,10,2,8,5,14,12,11,15,1],
+ [13,6,4,9,8,15,3,0,11,1,2,12,5,10,14,7],
+ [1,10,13,0,6,9,8,7,4,15,14,3,11,5,2,12]
+],
+[ # S4
+ [7,13,14,3,0,6,9,10,1,2,8,5,11,12,4,15],
+ [13,8,11,5,6,15,0,3,4,7,2,12,1,10,14,9],
+ [10,6,9,0,12,11,7,13,15,1,3,14,5,2,8,4],
+ [3,15,0,6,10,1,13,8,9,4,5,11,12,7,2,14]
+],
+[ # S5
+ [2,12,4,1,7,10,11,6,8,5,3,15,13,0,14,9],
+ [14,11,2,12,4,7,13,1,5,0,15,10,3,9,8,6],
+ [4,2,1,11,10,13,7,8,15,9,12,5,6,3,0,14],
+ [11,8,12,7,1,14,2,13,6,15,0,9,10,4,5,3]
+],
+[ # S6
+ [12,1,10,15,9,2,6,8,0,13,3,4,14,7,5,11],
+ [10,15,4,2,7,12,9,5,6,1,13,14,0,11,3,8],
+ [9,14,15,5,2,8,12,3,7,0,4,10,1,13,11,6],
+ [4,3,2,12,9,5,15,10,11,14,1,7,6,0,8,13]
+],
+[ # S7
+ [4,11,2,14,15,0,8,13,3,12,9,7,5,10,6,1],
+ [13,0,11,7,4,9,1,10,14,3,5,12,2,15,8,6],
+ [1,4,11,13,12,3,7,14,10,15,6,8,0,5,9,2],
+ [6,11,13,8,1,4,10,7,9,5,0,15,14,2,3,12]
+],
+[ # S8
+ [13,2,8,4,6,15,11,1,10,9,3,14,5,0,12,7],
+ [1,15,13,8,10,3,7,4,12,5,6,11,0,14,9,2],
+ [7,11,4,1,9,12,14,2,0,6,10,13,15,3,5,8],
+ [2,1,14,7,4,10,8,13,15,12,9,0,3,5,6,11]
+]
+]
+
+# ---------------- Utilities ----------------
+def bytes_to_bits(b: bytes) -> List[int]:
+    bits = []
+    for byte in b:
+        for i in range(7, -1, -1):
+            bits.append((byte >> i) & 1)
+    return bits
+
+def bits_to_str(bits: List[int]) -> str:
+    return ''.join(str(bit) for bit in bits)
+
+def bits_grouped(bits: List[int], group: int=8) -> str:
+    s = bits_to_str(bits)
+    return ' '.join(s[i:i+group] for i in range(0, len(s), group))
+
+def permute(bits: List[int], table: List[int]) -> List[int]:
+    return [bits[i-1] for i in table]
+
+def left_rotate(bits: List[int], n: int) -> List[int]:
+    return bits[n:] + bits[:n]
+
+def xor_bits(a: List[int], b: List[int]) -> List[int]:
+    return [x ^ y for x, y in zip(a, b)]
+
+def sbox_substitute(block48: List[int]) -> List[int]:
+    out = []
+    for i in range(8):
+        chunk = block48[i*6:(i+1)*6]
+        row = (chunk[0] << 1) | chunk[5]
+        col = (chunk[1] << 3) | (chunk[2] << 2) | (chunk[3] << 1) | chunk[4]
+        val = S_BOX[i][row][col]
+        for bit in [(val >> 3) & 1, (val >> 2) & 1, (val >> 1) & 1, val & 1]:
+            out.append(bit)
+    return out
+
+def bits_to_bytes(bits: List[int]) -> bytes:
+    out = bytearray()
+    for i in range(0, len(bits), 8):
+        byte = 0
+        for j in range(8):
+            byte = (byte << 1) | bits[i+j]
+        out.append(byte)
+    return bytes(out)
+
+# ---------------- DES core (key schedule & block encrypt) ----------------
+def generate_subkeys(key_bytes: bytes):
+    if len(key_bytes) < 8:
+        key_bytes = key_bytes + b'\x00' * (8 - len(key_bytes))
+    key_bits = bytes_to_bits(key_bytes)  # 64
+    pc1 = permute(key_bits, PC1)         # 56
+    C = pc1[:28]
+    D = pc1[28:]
+    Cs = [C.copy()]
+    Ds = [D.copy()]
+    subkeys = []
+    for i, s in enumerate(SHIFTS):
+        C = left_rotate(C, s)
+        D = left_rotate(D, s)
+        Cs.append(C.copy()); Ds.append(D.copy())
+        CD = C + D
+        K = permute(CD, PC2)
+        subkeys.append(K)
+    return {
+        'pc1': pc1, 'C0': Cs[0], 'D0': Ds[0],
+        'Cs': Cs, 'Ds': Ds, 'subkeys': subkeys
+    }
+
+def des_block_encrypt(block_bytes: bytes, subkeys: List[List[int]], show_lr: bool=True):
+    bits = bytes_to_bits(block_bytes)  # 64
+    ip = permute(bits, IP)
+    L = ip[:32]; R = ip[32:]
+    logs = []
+    for i in range(16):
+        f_in = permute(R, E)
+        xor_with_k = xor_bits(f_in, subkeys[i])
+        s_out = sbox_substitute(xor_with_k)
+        p_out = permute(s_out, P)
+        newR = xor_bits(L, p_out)
+        L, R = R, newR
+        round_log = {
+            'round': i+1,
+            'f_in': f_in,
+            'xor_with_k': xor_with_k,
+            's_out': s_out,
+            'p_out': p_out,
+            'L': L.copy(),
+            'R': R.copy()
+        }
+        logs.append(round_log)
+    preout = R + L
+    cipher = permute(preout, FP)
+    return {
+        'ip': ip,
+        'rounds': logs,
+        'cipher': cipher
+    }
+
+# ---------------- GUI app ----------------
+class DESApp:
+    def __init__(self, root):
+        self.root = root
+        root.title("DES — Final (Binary only)")
+        root.geometry("1200x760")
+
+        # top frames
+        top = ttk.Frame(root, padding=(10,8))
+        top.pack(side='top', fill='x')
+        center = ttk.Frame(root, padding=(10,6))
+        center.pack(side='top', fill='both', expand=True)
+
+        # inputs
+        ttk.Label(top, text="Plaintext / Ciphertext:", font=('Segoe UI',10)).grid(row=0, column=0, sticky='w')
+        self.entry_plain = ttk.Entry(top, width=68)
+        self.entry_plain.grid(row=0, column=1, padx=8)
+        ttk.Label(top, text="Key (<=8 chars):", font=('Segoe UI',10)).grid(row=1, column=0, sticky='w', pady=6)
+        self.entry_key = ttk.Entry(top, width=32)
+        self.entry_key.grid(row=1, column=1, sticky='w', padx=8, pady=6)
+
+        # options: grouped or continuous output
+        self.display_grouped_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(top, text="Display ciphertext grouped by bytes (with spaces)", variable=self.display_grouped_var).grid(row=0, column=2, padx=8)
+
+        # buttons
+        btn_frame = ttk.Frame(top)
+        btn_frame.grid(row=0, column=3, rowspan=2, padx=6)
+        self.btn_encrypt = ttk.Button(btn_frame, text="Encrypt", width=16, command=self.encrypt)
+        self.btn_encrypt.pack(pady=4)
+        self.btn_decrypt = ttk.Button(btn_frame, text="Decrypt", width=16, command=self.decrypt)
+        self.btn_decrypt.pack(pady=4)
+        self.btn_copy_cipher = ttk.Button(btn_frame, text="Copy Ciphertext", width=16, command=self.copy_cipher)
+        self.btn_copy_cipher.pack(pady=4)
+        self.btn_copy_plain = ttk.Button(btn_frame, text="Copy Plaintext", width=16, command=self.copy_plain)
+        self.btn_copy_plain.pack(pady=4)
+
+        # navigation buttons for steps
+        nav_frame = ttk.Frame(btn_frame)
+        nav_frame.pack(pady=6)
+        self.btn_prev = ttk.Button(nav_frame, text="◀ Prev", width=8, command=self.prev_step, state='disabled')
+        self.btn_prev.grid(row=0, column=0, padx=2)
+        self.btn_next = ttk.Button(nav_frame, text="Next ▶", width=8, command=self.next_step, state='disabled')
+        self.btn_next.grid(row=0, column=1, padx=2)
+        self.btn_all = ttk.Button(nav_frame, text="Show All", width=8, command=self.show_all, state='disabled')
+        self.btn_all.grid(row=0, column=2, padx=2)
+        self.chk_show_lr_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(btn_frame, text="Show L/R in rounds", variable=self.chk_show_lr_var).pack(pady=4)
+
+        # center: left steps, right detail
+        left = ttk.Frame(center)
+        left.pack(side='left', fill='y')
+        right = ttk.Frame(center)
+        right.pack(side='left', fill='both', expand=True)
+
+        ttk.Label(left, text="Steps", font=('Segoe UI',10,'bold')).pack(anchor='w')
+        self.lst_steps = tk.Listbox(left, width=38, height=36, activestyle='none')
+        self.lst_steps.pack(side='left', fill='y', padx=(0,6))
+        scrollbar = ttk.Scrollbar(left, orient='vertical', command=self.lst_steps.yview)
+        scrollbar.pack(side='left', fill='y')
+        self.lst_steps.config(yscrollcommand=scrollbar.set)
+        self.lst_steps.bind('<<ListboxSelect>>', self.on_select_step)
+
+        ttk.Label(right, text="Detail / Explanation", font=('Segoe UI',10,'bold')).pack(anchor='w')
+        self.txt_detail = scrolledtext.ScrolledText(right, wrap='none', font=('Consolas',10), width=100, height=36)
+        self.txt_detail.pack(fill='both', expand=True)
+        self.txt_detail.config(state='disabled')
+
+        # storage
+        self.steps = []
+        self.current_index = None
+        self.last_cipher_bits = ""  # store last ciphertext bits (continuous, no spaces)
+        self.last_plain_bits = ""   # store last plaintext bits
+
+    # ----------------- helper UI functions -----------------
+    def copy_to_clipboard(self, text: str):
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            messagebox.showinfo("Copied", "Text copied to clipboard.")
+        except Exception as e:
+            messagebox.showwarning("Warning", f"Could not copy: {e}")
+
+    def copy_cipher(self):
+        if not self.last_cipher_bits:
+            messagebox.showinfo("Info", "No ciphertext available to copy.")
+            return
+        if self.display_grouped_var.get():
+            grouped = ' '.join([self.last_cipher_bits[i:i+8] for i in range(0, len(self.last_cipher_bits), 8)])
+            self.copy_to_clipboard(grouped)
+        else:
+            self.copy_to_clipboard(self.last_cipher_bits)
+
+    def copy_plain(self):
+        if not self.last_plain_bits:
+            messagebox.showinfo("Info", "No plaintext available to copy.")
+            return
+        # convert bits to text (latin1 then try utf-8)
+        try:
+            b = bits_to_bytes([int(c) for c in self.last_plain_bits])
+            try:
+                txt = b.decode('utf-8')
+            except:
+                txt = b.decode('latin1', errors='replace')
+            self.copy_to_clipboard(txt)
+        except Exception as e:
+            messagebox.showwarning("Warning", f"Could not prepare plaintext: {e}")
+
+    # ----------------- core actions -----------------
+    def encrypt(self):
+        plaintext = self.entry_plain.get()
+        key = self.entry_key.get()
+        if key == "":
+            messagebox.showerror("Error", "Key tidak boleh kosong.")
+            return
+        # ensure key <=8 bytes
+        if len(key.encode('utf-8')) > 8:
+            key = key.encode('utf-8')[:8].decode('latin1', errors='ignore')
+            messagebox.showinfo("Info", "Key dipotong ke 8 byte.")
+
+        # PKCS#5/7 padding to 8 bytes
+        data = plaintext.encode('utf-8')
+        pad_len = 8 - (len(data) % 8)
+        if pad_len == 0: pad_len = 8
+        data = data + bytes([pad_len]) * pad_len
+        block = data[:8]
+
+        ks = generate_subkeys(key.encode('latin1') if isinstance(key, str) else key)
+        subkeys = ks['subkeys']
+
+        # prepare steps
+        self.steps = []
+        # Key and PC-1
+        title = "Key → PC-1 → C0 / D0"
+        content = []
+        content.append(f"Input key (bytes): {key!r}")
+        kb = key.encode('latin1') if isinstance(key, str) else key
+        key_bits = bytes_to_bits(kb if len(kb)>=1 else b'\x00'*8)
+        content.append("Key (64-bit):")
+        content.append(bits_grouped(key_bits,8))
+        content.append("\nApply PC-1 (drop parity) => 56 bits:")
+        content.append(bits_grouped(ks['pc1'],7))
+        content.append("\nC0 (28 bits): " + bits_to_str(ks['C0']))
+        content.append("D0 (28 bits): " + bits_to_str(ks['D0']))
+        self.steps.append((title, '\n'.join(content)))
+
+        # rotations & subkeys
+        for i in range(16):
+            title = f"Round {i+1} - Left shifts → C{i+1} / D{i+1} → PC-2 → K{i+1:02d}"
+            content = []
+            content.append(f"Shift amount: {SHIFTS[i]}")
+            content.append("C{}: {}".format(i, bits_grouped(ks['Cs'][i],7)))
+            content.append("D{}: {}".format(i, bits_grouped(ks['Ds'][i],7)))
+            content.append("After shift C{}: {}".format(i+1, bits_grouped(ks['Cs'][i+1],7)))
+            content.append("After shift D{}: {}".format(i+1, bits_grouped(ks['Ds'][i+1],7)))
+            content.append("Subkey K{0:02d}:".format(i+1))
+            content.append(bits_grouped(subkeys[i],6))
+            self.steps.append((title, '\n'.join(content)))
+
+        # IP
+        title = "Initial Permutation (IP)"
+        block_bits = bytes_to_bits(block)
+        ip_bits = permute(block_bits, IP)
+        content = []
+        content.append("Plaintext block (8 bytes): {}".format(block))
+        content.append("Plaintext (64-bit):")
+        content.append(bits_grouped(block_bits,8))
+        content.append("\nAfter IP (64-bit):")
+        content.append(bits_grouped(ip_bits,8))
+        self.steps.append((title, '\n'.join(content)))
+
+        # rounds
+        enc = des_block_encrypt(block, subkeys, show_lr=True)
+        rounds = enc['rounds']
+        for r in rounds:
+            rn = r['round']
+            title = f"Feistel Round {rn}"
+            content = []
+            content.append(f"Round {rn} inputs (before f):")
+            content.append("L (after swap) = " + bits_grouped(r['L'],8))
+            content.append("R (after swap) = " + bits_grouped(r['R'],8))
+            content.append("\nExpansion E(R):")
+            content.append(bits_grouped(r['f_in'],6))
+            content.append("E(R) XOR K{}:".format(rn))
+            content.append(bits_grouped(r['xor_with_k'],6))
+            content.append("\nS-box output (32b):")
+            content.append(bits_grouped(r['s_out'],8))
+            content.append("P permutation (32b):")
+            content.append(bits_grouped(r['p_out'],8))
+            if self.chk_show_lr_var.get():
+                content.append("\nL (new) = " + bits_grouped(r['L'],8))
+                content.append("R (new) = " + bits_grouped(r['R'],8))
+            self.steps.append((title, '\n'.join(content)))
+
+        # final
+        title = "Final Permutation (IP⁻¹) → Ciphertext (binary only)"
+        content = []
+        content.append("Before FP combine R||L (note swap at end of rounds).")
+        content.append("Ciphertext (64-bit):")
+        content.append(bits_grouped(enc['cipher'],8))
+        # convert to continuous bits and bytes
+        try:
+            cbytes = bits_to_bytes(enc['cipher'])
+            content.append("\nCiphertext (bytes): {}".format(cbytes))
+        except Exception:
+            pass
+        self.steps.append((title, '\n'.join(content)))
+
+        # store ciphertext bits (continuous, no spaces)
+        self.last_cipher_bits = bits_to_str(enc['cipher'])
+        self.last_plain_bits = bits_to_str(block_bits)
+
+        # populate listbox & show first
+        self.lst_steps.delete(0, tk.END)
+        for idx, (t, _) in enumerate(self.steps):
+            self.lst_steps.insert(tk.END, f"{idx+1:02d}. {t}")
+        self.btn_next.config(state='normal')
+        self.btn_all.config(state='normal')
+        self.current_index = 0
+        self.lst_steps.selection_clear(0, tk.END)
+        self.lst_steps.selection_set(0)
+        self.lst_steps.activate(0)
+        self.show_step(0)
+
+    def decrypt(self):
+        ciphertext_input = self.entry_plain.get().strip()
+        key = self.entry_key.get()
+        if key == "":
+            messagebox.showerror("Error", "Key tidak boleh kosong.")
+            return
+        if len(key.encode('utf-8')) > 8:
+            key = key.encode('utf-8')[:8].decode('latin1', errors='ignore')
+            messagebox.showinfo("Info", "Key dipotong ke 8 byte.")
+
+        block = None
+        # accept grouped or continuous binary
+        s = ciphertext_input.replace(" ", "")
+        if len(s) == 64 and all(c in "01" for c in s):
+            try:
+                block = int(s, 2).to_bytes(8, 'big')
+            except Exception:
+                messagebox.showerror("Error", "Invalid binary ciphertext.")
+                return
+        # accept raw 8-byte text
+        elif len(ciphertext_input.encode('latin1', errors='ignore')) == 8:
+            block = ciphertext_input.encode('latin1', errors='ignore')
+        else:
+            messagebox.showerror("Error", "Ciphertext harus 64-bit binary (continuous or grouped) atau 8-byte raw text.")
+            return
+
+        # subkeys reversed for decryption
+        ks = generate_subkeys(key.encode('latin1') if isinstance(key, str) else key)
+        subkeys = ks['subkeys'][::-1]
+
+        # build steps (similar to encrypt, but key schedule note reversed)
+        self.steps = []
+        title = "Key → PC-1 → C0 / D0"
+        content = []
+        content.append("Input key (bytes): {}".format(key))
+        kb = key.encode('latin1') if isinstance(key, str) else key
+        key_bits = bytes_to_bits(kb if len(kb)>=1 else b'\x00'*8)
+        content.append("Key (64-bit):")
+        content.append(bits_grouped(key_bits,8))
+        content.append("\nApply PC-1 (drop parity) => 56 bits:")
+        content.append(bits_grouped(ks['pc1'],7))
+        content.append("\nC0 (28 bits): " + bits_to_str(ks['C0']))
+        content.append("D0 (28 bits): " + bits_to_str(ks['D0']))
+        self.steps.append((title, '\n'.join(content)))
+
+        # show keys (encryption keys shown, and mapping to decryption order)
+        for i in range(16):
+            title = f"Round {i+1} - (Key schedule info)"
+            content = []
+            content.append(f"Shift amount: {SHIFTS[i]}")
+            content.append("C{}: {}".format(i, bits_grouped(ks['Cs'][i],7)))
+            content.append("D{}: {}".format(i, bits_grouped(ks['Ds'][i],7)))
+            content.append("After shift C{}: {}".format(i+1, bits_grouped(ks['Cs'][i+1],7)))
+            content.append("After shift D{}: {}".format(i+1, bits_grouped(ks['Ds'][i+1],7)))
+            content.append("Subkey K{0:02d} (encryption): {1}".format(i+1, bits_grouped(ks['subkeys'][i],6)))
+            content.append("Used in decryption as K{0:02d}".format(16 - i))
+            self.steps.append((title, '\n'.join(content)))
+
+        # IP on ciphertext
+        title = "Initial Permutation (IP) on ciphertext"
+        block_bits = bytes_to_bits(block)
+        ip_bits = permute(block_bits, IP)
+        content = []
+        content.append("Ciphertext block (8 bytes): {}".format(block))
+        content.append("Ciphertext (64-bit):")
+        content.append(bits_grouped(block_bits,8))
+        content.append("\nAfter IP (64-bit):")
+        content.append(bits_grouped(ip_bits,8))
+        self.steps.append((title, '\n'.join(content)))
+
+        # run rounds with reversed subkeys (des_block_encrypt uses given subkeys as-is)
+        dec = des_block_encrypt(block, subkeys, show_lr=True)
+        rounds = dec['rounds']
+        for r in rounds:
+            rn = r['round']
+            title = f"Feistel Round {rn} (decryption order)"
+            content = []
+            content.append(f"Round {rn} inputs (before f):")
+            content.append("L (after swap) = " + bits_grouped(r['L'],8))
+            content.append("R (after swap) = " + bits_grouped(r['R'],8))
+            content.append("\nExpansion E(R):")
+            content.append(bits_grouped(r['f_in'],6))
+            content.append("E(R) XOR K(decrypt){}:".format(rn))
+            content.append(bits_grouped(r['xor_with_k'],6))
+            content.append("\nS-box output (32b):")
+            content.append(bits_grouped(r['s_out'],8))
+            content.append("P permutation (32b):")
+            content.append(bits_grouped(r['p_out'],8))
+            if self.chk_show_lr_var.get():
+                content.append("\nL (new) = " + bits_grouped(r['L'],8))
+                content.append("R (new) = " + bits_grouped(r['R'],8))
+            self.steps.append((title, '\n'.join(content)))
+
+        # final FP -> plaintext bits
+        title = "Final Permutation (IP⁻¹) → Plaintext bits"
+        content = []
+        content.append("Before FP combine R||L (note swap at end of rounds).")
+        content.append("Plaintext (64-bit):")
+        content.append(bits_grouped(dec['cipher'],8))
+        try:
+            pt_bytes = bits_to_bytes(dec['cipher'])
+            pad_val = pt_bytes[-1]
+            if 1 <= pad_val <= 8 and pt_bytes[-pad_val:] == bytes([pad_val])*pad_val:
+                unpadded = pt_bytes[:-pad_val]
+                content.append("\nDetected padding value: {}".format(pad_val))
+                content.append("Plaintext after padding removal (bytes): {}".format(unpadded))
+                try:
+                    content.append("Plaintext (utf-8): " + unpadded.decode('utf-8', errors='replace'))
+                except:
+                    content.append("Plaintext (latin1): " + unpadded.decode('latin1', errors='replace'))
+            else:
+                content.append("\nNo valid PKCS#5/7 padding detected or padding unchanged.")
+                content.append("Plaintext (bytes): {}".format(pt_bytes))
+                try:
+                    content.append("Plaintext (utf-8): " + pt_bytes.decode('utf-8', errors='replace'))
+                except:
+                    content.append("Plaintext (latin1): " + pt_bytes.decode('latin1', errors='replace'))
+            # record last plain bits and text for copy
+            self.last_plain_bits = bits_to_str(dec['cipher'])
+        except Exception as e:
+            content.append("\nError converting bits to bytes: " + str(e))
+        self.steps.append((title, '\n'.join(content)))
+
+        # store last_cipher_bits for potential reuse (normalize from input)
+        try:
+            # if user input grouped or continuous, store normalized continuous
+            self.last_cipher_bits = ''.join(c for c in ciphertext_input if c in "01")
+        except:
+            self.last_cipher_bits = ""
+
+        # populate listbox
+        self.lst_steps.delete(0, tk.END)
+        for idx, (t, _) in enumerate(self.steps):
+            self.lst_steps.insert(tk.END, f"{idx+1:02d}. {t}")
+        self.btn_next.config(state='normal')
+        self.btn_all.config(state='normal')
+        self.current_index = 0
+        self.lst_steps.selection_clear(0, tk.END)
+        self.lst_steps.selection_set(0)
+        self.lst_steps.activate(0)
+        self.show_step(0)
+
+    # ----------------- step navigation -----------------
+    def show_step(self, index: int):
+        if index < 0 or index >= len(self.steps): return
+        title, content = self.steps[index]
+        self.txt_detail.config(state='normal')
+        self.txt_detail.delete('1.0', tk.END)
+        self.txt_detail.insert(tk.END, f"{index+1:02d}. {title}\n\n")
+        self.txt_detail.insert(tk.END, content)
+        self.txt_detail.config(state='disabled')
+        self.current_index = index
+        self.btn_prev.config(state=('normal' if index>0 else 'disabled'))
+        self.btn_next.config(state=('normal' if index < len(self.steps)-1 else 'disabled'))
+
+    def on_select_step(self, evt):
+        if not self.lst_steps.curselection(): return
+        idx = self.lst_steps.curselection()[0]
+        self.show_step(idx)
+
+    def prev_step(self):
+        if self.current_index is None: return
+        self.show_step(self.current_index - 1)
+        self.lst_steps.selection_clear(0, tk.END)
+        self.lst_steps.selection_set(self.current_index)
+        self.lst_steps.activate(self.current_index)
+
+    def next_step(self):
+        if self.current_index is None: return
+        self.show_step(self.current_index + 1)
+        self.lst_steps.selection_clear(0, tk.END)
+        self.lst_steps.selection_set(self.current_index)
+        self.lst_steps.activate(self.current_index)
+
+    def show_all(self):
+        txt = []
+        for i, (t, c) in enumerate(self.steps):
+            txt.append(f"{i+1:02d}. {t}\n\n{c}\n\n" + ("-"*72) + "\n")
+        self.txt_detail.config(state='normal')
+        self.txt_detail.delete('1.0', tk.END)
+        self.txt_detail.insert(tk.END, '\n'.join(txt))
+        self.txt_detail.config(state='disabled')
+
+# ---------------- main ----------------
+def main():
+    root = tk.Tk()
+    app = DESApp(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
